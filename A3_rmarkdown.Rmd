@@ -1,0 +1,747 @@
+---
+title: "A3_Amazon Case"
+author: "Claire Li"
+date: "10/21/2019"
+output: html_document
+---
+## Toys Sales on Amazon
+### Defining popularity
+
+Amazon has revolutionized the way people think about onling shopping. Studying Amazon using analytical tools will privide insights into the ways in which ecommerce companies can improve their business into the future. Here the Amazon Toys dataset is a snapshot of toys sales on Amazon, and is a perfect venue for examining the relationship between product popularity and their manifestations in online metrics such as ratings or rankings. Having the knowledge of what factors may influence a product's definition, the sales of a product can be reliably predicted. Amazon can thus determine the amount of resources that it allocates to the pomotion of that particular product. For example, is it worth it to put the "Amazon's choice" tab on it or to feature it on the front page?
+
+
+```{r CS1, echo = FALSE, include = FALSE}
+library(rmdformats)
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(ggthemes)
+library(tools)
+library(scales)
+setwd("C:/Users/Claire Li/Desktop/DM6020")
+toys <- read_csv("Toys_Amazon.csv")
+#get rid of special characters in price
+#assuming that the "£" sign denotes pounds
+toys$price <- round(as.numeric(gsub("Â£", "", toys$price)),2)
+names(toys)[names(toys) == 'price'] <- 'price_in_pounds'
+
+head(toys$price_in_pounds)
+
+#get rid of manufacturer name that is present in product name
+toys$manufacturer <- as.character(toys$manufacturer)
+m <- strsplit(toys$manufacturer, split = " ")
+
+toys$product_name <-  mapply(function(x,y){gsub(paste0(x, collapse = "|"), "",
+                                                toys$product_name[y])}, m, 1:length(m))
+
+#getting rid of special character
+toys$number_available_in_stock <- gsub("Â", ".", toys$number_available_in_stock)
+toys$product_name <- gsub("Â", "", toys$product_name)
+
+#capitalize each word in product name and manufacturer AND remove special characters
+toys$manufacturer <- as.character(toys$manufacturer)
+toys$manufacturer <- toTitleCase(toys$manufacturer)
+
+toys$product_name <- as.character(toys$product_name)
+toys$product_name <- gsub("Â", "", toys$product_name)
+toys$product_name <- tolower(toys$product_name)
+toys$product_name <- toTitleCase(toys$product_name)
+
+head(toys$product_name)
+
+#get rid of description
+toys$description <- NULL
+head(toys$number_available_in_stock)
+
+#separate in_stock into two Columns 
+toys <- separate(toys, number_available_in_stock,
+                 c("inventory","condition"))
+toys$inventory <- as.numeric(toys$inventory)
+
+head(toys$inventory)
+head(toys$condition)
+
+```
+
+```{r df_category, echo = FALSE, warning= FALSE}
+#separate each product catecory
+df_category <- toys%>%
+   select(uniq_id, amazon_category_and_sub_category)%>%
+  separate(amazon_category_and_sub_category, 
+                into = c("first_category","second_category", "third_category",
+                   "fourth_category","fifth_category"), sep = "([<\\>])")
+```
+
+```{r view df_category table, echo = FALSE}
+df_category_table <- data.frame(Column =c(
+  "uniq_id","first_category","second_category", "third_category",
+                   "fourth_category","fifth_category"),
+                 Description = c("Unique ID for each product",
+                 "Largest category","Second category","Third category",
+                 "Fourth category", "Fifth, smallest category, lots of NAs here"),Datatype = c("Character"))
+```
+
+
+```{r cs1_hide, include = FALSE}
+#extract average rating
+toys$average_review_rating <- toys$average_review_rating %>%
+  as.character() %>%
+  str_extract( "(.\\..)") %>%
+  as.numeric(as.character())
+
+head(toys$average_review_rating)
+
+
+#extract age from product info 
+toys$age <- as.character(str_extract(toys$product_information, "\\d+\\ years\\ "))
+toys$age <- as.numeric(gsub("years", "", toys$age))
+
+#extract best seller rank in main category from product info
+toys$product_information <- as.character(toys$product_information)
+toys$best_sellers <- str_extract(toys$product_information, "\\ \\d+\\,\\d+\\ ")
+toys$best_sellers <- as.numeric(gsub(",", "", toys$best_sellers))
+
+#extract rank in lowest category from product info
+toys$rank_lowest_category <- as.character(str_extract(toys$product_information, "#\\d+"))
+toys$rank_lowest_category <- as.numeric(gsub("#", "", toys$rank_lowest_category))
+
+```
+
+
+```{r df_reviews, warning = FALSE, echo = FALSE}
+#create new data frame for customer_review
+toys$customer_reviews <- as.character(toys$customer_reviews)
+df_reviews <- toys %>%
+  select(uniq_id, customer_reviews) %>%
+  separate_rows(customer_reviews, sep = "\\|") %>%
+  separate(customer_reviews, c("title","rating","date",
+                                 "user","comments")
+                               ,sep = "//")
+```
+
+
+```{r df_reviews kable, echo = FALSE}
+#Again, we have lots of NAs in this new dataframe.
+#"max(rowSums(!is.na(reviews)))" shows that only 1 row has a maxmum of 46 Columns
+
+df_reviews_table <- data.frame(Column =c(
+  "uniq_id","title","rating", "date",
+                   "user","comments"),
+                 Description = c("Unique ID for each product",
+                 "Title of the user review","Rating","Date the user left the view",
+                 "User name", "The cotent of the comment"),Datatype = c("Character"))
+```
+
+
+
+```{r cs1, include = FALSE}
+#rearrange the sequence of Columns
+toys <- toys[,c(3, 2, 4, 5, 6, 7, 8, 9, 18, 19, 20, 10, 
+                11, 12, 13, 14, 15, 16, 17, 1)]
+```
+
+```{r count category, include = FALSE}
+count1 <- df_category %>%
+  group_by(first_category)%>%
+  summarise(first_n = n()) %>%
+  filter(first_n > 700) %>%
+  na.omit(first_category)#? first_category n or count1?
+
+count2 <- df_category %>%
+  group_by(second_category)%>%
+  summarise(second_n = n()) %>%
+  filter(second_n > 380) %>%
+  na.omit(second_category)
+
+count3 <- df_category %>%
+  group_by(third_category)%>%
+  summarise(third_n = n()) %>%
+  filter(third_n > 200) %>%
+  na.omit(third_category)
+
+count4 <- df_category %>%
+  group_by(fourth_category)%>%
+  summarise(fourth_category_n = n()) %>%
+  filter(fourth_category_n > 100) %>%
+  na.omit(fourth_category)
+
+```
+
+Visualization is the most straighforward way to understand what defines a product's popularity. Some company may be developing various products and they all share equal popularity amongst the company's fans, while other company may have a "star" product that dominate its sales, such as Nintendo's "Swtich." Hence, there are two levels of popularity in this case as well:
+* Product popularity:
+  +Popular toys would appear more often in the dataset because higher demand dictates higher supply
+* Brand popularity:
+  +Many of the consumers out there have brands loyalty and may only purchase from one brand over and over again, thus it would be interesting to see which brand is so lucky to be popular amongst buyers
+  +Similarity, there is the assumption that popular brands would appear more times then unpopular ones
+
+
+The following graph illustrates the most frequently appearing toys when their appearances exceed 700 in the who dataset. 
+```{r most popular toys, echo=FALSE}
+#what kind of toys are most popular on Amazon? 
+#barplot for the first category
+ggplot(count1, aes(x = reorder(first_category, -first_n), 
+                   y = first_n, fill = first_n))+
+  geom_bar(stat = "identity") +
+  ggtitle("Most Popular Categories(1st)") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size=8, angle=10))+
+  labs(x = "Categories ")+
+  labs(y = "Count")+
+  scale_y_continuous(limits=c(500,1500),oob = rescale_none)
+```
+
+
+The following graph illustrates the top 10 frequently appearing manufacturers, or brands.
+```{r most popular brands, echo=FALSE}
+#Which brands are the most dominant?
+m_count <- toys %>%
+  group_by(manufacturer)%>%
+  count()%>%
+  na.omit()%>%
+  arrange(desc(n))
+m_count_sort <- m_count[1:10,]
+m_count_sort$n <- as.numeric(m_count_sort$n)
+
+ggplot(m_count_sort, aes(x = manufacturer))+
+  geom_bar(aes(x = reorder(manufacturer, -n), y = n, fill=n), stat = "identity") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(axis.text.x = element_text(size=8, angle=20))+
+  ggtitle("Top Brands") +
+  labs(x = "Top 10 Manufacturer")+
+  labs(y = "Count")+
+  scale_y_continuous(limits=c(75,175),oob = rescale_none)
+```
+
+Another way to idendity the most freqenty appearing brands is to look at their ranking in the lowest category.The higher the ranking, the more popular the brands is:
+```{r most popular brands 2, echo=FALSE}
+#which brands are the most dominant: another perspective
+#based on rank within own category extracted from product_info
+ranked <- c(which(toys$rank_lowest_category == min(
+  toys$rank_lowest_category, na.rm=TRUE)))
+
+#based on best sellers ranking in the whole marketplace extracted from product_info
+sellers <- c(which(toys$best_sellers == min(
+  toys$best_sellers, na.rm=TRUE)))
+
+#min(toys$rank_lowest_category, na.rm=TRUE)
+toys$manufacturer[ranked]
+#min(toys$best_sellers, na.rm=TRUE)
+#toys$manufacturer[sellers]
+```
+
+
+Another way to idendity the most freqenty appearing brands is to look at their five-star rating in the lowest category. Suprisingly the top brands, in this case and in the tables above, are not big names such as LEGO or Disney, but low-profile companies. 
+
+Normally it is expected that world-renowed brands would have higher ratings given that they make top-quality products that have brought them good reputation, but this visaulization counters common belief. Going forward, this question will be answered by regression analysis. 
+```{r best reviewed brands, include = FALSE}
+#break down and predict which kinds of toys and brands get the best reviews? 
+ratings_brand <- filter(toys, average_review_rating == 5) %>%
+  group_by(manufacturer) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  filter(n > 50) %>%
+  ggplot() + 
+  geom_bar(aes(x = reorder(manufacturer, -n), y = n, fill = n),
+           stat = "identity")+
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(axis.text.x = element_text(size=8, angle=20))+
+  ggtitle("Best Reviewed Brands") +
+  labs(x = "Brands")+
+  labs(y = "# of Five Stars")+
+  scale_y_continuous(limits=c(30, 110),oob = rescale_none)
+
+ratings_brand
+```
+Below the best reviewed category is ranked based on their number of five_star reviews. Interestingly the second cateogry is "Die-cast and Toys Vehicles" which corroborates with the unparalleled popularity reflected in the graph above. If it is the parent who makes the purchase on Amazon and not the kids themselves, maybe young boys are more likely to be satified with their toys bought online, given that this is the category that is more likely ot be purchased for young boys.  
+```{r best reviewed category, include = FALSE}
+df_category <- cbind(df_category, toys$average_review_rating)
+
+
+ratings_category <- filter(df_category, toys$average_review_rating == 5) %>%
+  group_by(first_category) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  filter(n > 350) %>%
+  ggplot() + 
+  geom_bar(aes(x = reorder(first_category, -n), y = n, fill = n),
+           stat = "identity")+
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(axis.text.x = element_text(size=8, angle=20))+
+  ggtitle("Best Reviewed Categores") +
+  labs(x = "Categories")+
+  labs(y = "# of Five Stars")+
+  scale_y_continuous(limits=c(250,900),oob = rescale_none)
+
+ratings_category
+```
+
+```{r customer_questions_and_answers, warning=FALSE, echo = FALSE}
+toys$customer_questions_and_answers <-as.character(toys$customer_questions_and_answers)
+#select uniq_id with Q and A
+df_qa <- toys %>%
+  select(uniq_id, customer_questions_and_answers) %>%
+  separate_rows(customer_questions_and_answers, sep = "\\|") %>%
+  separate(customer_questions_and_answers, into = c(
+    "question", "answer"), sep = "//")
+#There is only one row with a maximum of 11 questions,with the 11th question unanswered.
+
+
+# remove all rows with no Q&A
+df_qa[df_qa==""]<-NA
+df_qa <-df_qa[!is.na(df_qa$question1), ]
+
+```
+
+
+
+```{r make df_qa, echo = FALSE}
+df_qa_table <- data.frame(Column =c(
+  "uniq_id","question","answer"),
+                 Description = c("Unique ID for each product",
+                 "Perspective buyer's question","Answer by customers or seller"),Datatype = c("Character"))
+```
+
+```{r df_qa cleaning, include = FALSE, echo = FALSE}
+
+rm_preview <- function (x) {
+  gsub("^see more", "", x)
+}
+
+#df_qa[,3] <- lapply(df_qa[,3], rm_preview)
+
+#gsub("^.*?_","_","ATGAS_1121")
+#[1] "_1121"
+#This regular expression matches the beginning of the string (^), any character #(.) repeated zero or more times (*), and underscore (_). The ? makes the match #"lazy" so that it only matches as far as the first underscore. That match is #replaced with just an underscore. See ?regex for more details and references
+```
+
+```{r clean up sellers, echo = FALSE, warning= FALSE}
+toys$sellers <- as.character(toys$sellers)
+
+df_sellers <- toys %>%
+  select(uniq_id, sellers)%>%
+  separate_rows(sellers,sep="\\}, ")
+
+df_sellers <- separate(df_sellers, sellers, c("seller","price"), sep = ", \"")
+df_sellers <- separate(df_sellers, seller, c("out", "seller_name"),sep = ">\"")
+df_sellers$out <- NULL
+df_sellers <- separate(df_sellers, price, c("out", "price_in_pound"), sep = "Â£")
+df_sellers$out <- NULL
+
+df_sellers$price_in_pound <- gsub("\"", "", df_sellers$price_in_pound)
+df_sellers$price_in_pound <- gsub("\\*", "", df_sellers$price_in_pound)
+df_sellers$price_in_pound <- gsub("\\]", "", df_sellers$price_in_pound)
+df_sellers$price_in_pound <- gsub("\\}", "",df_sellers$price_in_pound)
+
+
+
+df_sellers$seller_name <- gsub("\"", "", df_sellers$seller_name)
+df_sellers$seller_name <- gsub("\\*", "", df_sellers$seller_name)
+df_sellers$seller_name <- gsub("\\]", "", df_sellers$seller_name)
+df_sellers$seller_name <- gsub("\\}", "",df_sellers$seller_name)
+
+
+df_sellers_table <- data.frame(Column =c(
+  "uniq_id","seller_name","price_in_pound"),
+                 Description = c("Unique ID for each product",
+                 "Seller name","Price at which other sellers are selling")
+  ,Datatype = c("Character"))
+
+
+```
+
+
+```{r customers_who_bought_this_item_also_bought,echo = FALSE}
+toys$customers_who_bought_this_item_also_bought <- as.character(toys$customers_who_bought_this_item_also_bought)
+
+df_also <- toys %>%
+  select(uniq_id, customers_who_bought_this_item_also_bought)%>%
+  separate_rows(customers_who_bought_this_item_also_bought, sep = "\\|")
+  
+df_also_table <- data.frame(Column =c(
+  "uniq_id","customers_who_bought_this_also_bought"),
+                 Description = c("Unique ID for each product",
+                 "Url for the items that customers who bought this item also bought"),Datatype = c("Character"))
+```
+
+```{r items bought after viewing this,echo = FALSE}
+toys$items_customers_buy_after_viewing_this_item <- as.character(toys$items_customers_buy_after_viewing_this_item)
+
+df_after <- toys %>%
+  select(uniq_id, items_customers_buy_after_viewing_this_item)%>%
+  separate_rows(items_customers_buy_after_viewing_this_item, sep = "\\|")
+  
+df_after_table <- data.frame(Column =c(
+  "uniq_id","items_customers_buy_after_viewing_this_item"),
+                 Description = c("Unique ID for each product",
+                 "Url for the items that customers buy after viewing this"),Datatype = c("Character"))
+```
+
+
+
+
+
+
+##  Predicting popularity
+###  Abstract
+This regression analysis takes on the questions that were posed in the previous portion and seeks to understand why well-knowned brands are not more popular based on rankings. Regression looks at the varaibles that could potentially influence the best seller ranking in the Amazon marketplace. We first added all the variables that are believed to have correlation with the dependent varaible. Then we iteratively removed a quadratic term which was previouly useful and a "age" term. The final regression consists of 3 explanatory variables. 
+
+
+Within-category rank is negatively correlated with price and recommended use age, but is positively correlated with best seller rank and average review rating. This means that higher prices is associated with better within-category ranking and that toys for younger children receive higher ratings than those for older children. This makes sense in that younger children often required higher safety standards and thus may be more expensive.
+
+
+
+
+
+```{r setup, include=FALSE}
+
+library(modelr)
+setwd("C:/Users/Claire Li/Desktop/DM6020")
+toys <- read_csv("Toys_Amazon.csv")
+also_bought <- read_csv("also_bought_product.csv")
+buy_after <- read_csv("buy_after_view_product.csv")
+category <- read_csv("category_product.csv")
+product <- read_csv("product.csv")
+question_answer <- read_csv("question_answer_product.csv")
+review_product <- read_csv("review_product.csv")
+seller_product <- read_csv("seller_product.csv")
+
+```
+
+```{r my varaibles, include = FALSE}
+
+toys$age <- as.character(str_extract(toys$product_information, "\\d+\\ years\\ "))
+toys$age <- as.numeric(gsub("years", "", toys$age))
+
+#extract best seller rank in main category from product info
+toys$product_information <- as.character(toys$product_information)
+toys$best_sellers_rank <- str_extract(toys$product_information, "\\ \\d+\\,\\d+\\ ")
+toys$best_sellers_rank <- as.numeric(gsub(",", "", toys$best_sellers_rank))
+
+#extract rank in lowest category from product info
+toys$lowest_category_rank <- as.character(str_extract(toys$product_information, "#\\d+"))
+toys$lowest_category_rank <- as.numeric(gsub("#", "", toys$lowest_category_rank))
+
+
+my_data <- data_frame(product$number_of_reviews,
+                 product$average_review_rating_out_of_5, 
+                 product$price, toys$age, toys$best_sellers_rank,
+                 toys$lowest_category_rank)
+
+```
+
+```{r prep, include = FALSE}
+
+names(my_data) <- c("num_review", "rating", "price","age","best_seller_rank","category_rank") 
+
+corr_matrix <- cor(my_data, use = "complete.obs")
+round(corr_matrix, 2)
+```
+
+The final regression model is the following:
+
+*log(best_seller_rank) = log(price) + log(num_review) + log(category_rank)
+
+The model has R-Sqaure Adjusted of 0.6025 and every explanatory varaible have significant coefficient.
+
+This model is saying that 60% of the variance in log(best_seller_rank) is explained by variables log(price), log(number of reviews) and log(lowest category rank). This model provides a new perspective because it shows that price and be associated with best seller ranking. Customers who buy expensive product often expect high quality and maybe there is a self-confirmation bias at play. More importantly, because high-quality products are often high-priced, best seller ranking tend to reflect this positive relationship between quality and price. 
+```{r regression, echo = FALSE}
+
+model <- lm(log(best_seller_rank) ~ 
+              log(price) +
+              log(num_review) + 
+              log(category_rank) ,
+             data = my_data)
+
+```
+
+
+Graph of residuals plotted againt the expect y variable. This graph shows that as the best seller ranking gets higher, the scattered points get more scarce, meaning that less data points are present in the higher ranking range, which undermines the model's predicting ability in that range. The lack of sample in the high-ranking range would result in the less popular brands having higher ranking but not necessarily better products. Hence this explains why all the popular brands, either by frequency of appearance or rating, are low-profile brands. 
+
+
+```{r visualization5, warning = FALSE, echo = FALSE}
+my_data <- my_data %>% 
+  add_residuals(model, "resid") 
+my_data <- my_data%>%  
+  add_predictions(model, "predicted")
+
+ggplot(data = my_data, aes(y = resid, x = log(best_seller_rank))) +
+         geom_point(col = 'blue') + geom_abline(slope = 0)
+```
+###  Summary
+
+To investigate what kind of toys are the most popular in the Amazon marketplace, frequency of appearance and rating are used to quatify the popularity of toys. Surprisingly, well-knowned brands such as LEGO and Disney do not have the most popular toys, nor are they the most popular brands. Regression analysis shows that to measure popularity, there is more to it than  the two metrics that were previously used. Price plays an important role in predicting the best seller rank. Regression analysis also demonstrate that the model does not predict well in the high-rank range, signaling a scarcity of data points in that region. This answer the question of why smaller brands are "more popular." Smaller brands have less data entries and thus have larger variances in their rankings. This creates the illusion that lesser-known brands are more popular. Another important insight is that toys with higher prices often get better reviews, which indicates a positive correlation between quality and price. All in all, big names such as LEGO and Disney enjoy worldwide popularity for a reason that is reflected in their quality and price. 
+
+##  Appendix
+The Amazon dataset consists of 17 variables that describe the following attritbutes of the product:
+
+```{r initial, include = FALSE}
+initial_table <- data.frame(Column =c(
+  "uniq_id","product_name","manufacturer", "price",
+  "inventory","condition","number_of_reviews","number_of_answered_questions",
+  "average_review_rating","amazon_category_and_sub_category",
+  "customers_who_bought_this_item_also_bought","product_information","product_description",
+  "items_customers_buy_after_viewing_this_item",
+  "customer_questions_and_answers","customer_reviews","sellers"),
+                 Description = c("Unique ID for each product",
+                 "Product Name","Manufacturer Name","Price(in Pounds)",
+                 "Inventory Level", "Condition","Number of Reviews",
+                 "Number of Answered Questions",
+                 "Average Review Rating",
+                 "Category and Subcategory","Customers who Bought this Also Bought",
+                 "Product Weight, Dimension,Recommended Age",
+                 "Mainly Serves Marketing Purposes",
+                 "Items Customers Buy after Viewing this Item",
+                 "Questions and Answers from Customers","Reviews(Score and Written)",
+                 "Seller Names"
+                 ))
+
+initial_table
+```
+### Data tidying
+### Tidy up "price" and "product name"
+The dataset has a lot of missing values and special characters that would hinder the subsequent analysis. Data preparation at this stage includes tidying and cleaning the dataset. Also, it would also be a priority at this stage to normalize the data, and making sure that there is no data redundancy. Missing values are coerced into NAs.
+```{r start1, echo=TRUE}
+library(rmdformats)
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(ggthemes)
+library(tools)
+library(scales)
+setwd("C:/Users/Claire Li/Desktop/DM6020")
+toys <- read_csv("Toys_Amazon.csv")
+#get rid of special characters in price
+#assuming that the "£" sign denotes pounds
+toys$price <- round(as.numeric(gsub("Â£", "", toys$price)),2)
+names(toys)[names(toys) == 'price'] <- 'price_in_pounds'
+```
+Data cleaning and data tidying are achieved using packages tidyverse,dplyr and stringr.
+
+Data visualization is made possible using ggplot2, tools, scales and ggthemes.
+
+```{r appendix1, echo = FALSE}
+#get rid of manufacturer name that is present in product name
+toys$manufacturer <- as.character(toys$manufacturer)
+m <- strsplit(toys$manufacturer, split = " ")
+
+toys$product_name <-  mapply(function(x,y){gsub(paste0(x, collapse = "|"), "",
+                                                toys$product_name[y])}, m, 1:length(m))
+
+#getting rid of special character
+toys$number_available_in_stock <- gsub("Â", ".", toys$number_available_in_stock)
+toys$product_name <- gsub("Â", "", toys$product_name)
+
+#capitalize each word in product name and manufacturer AND remove special characters
+toys$manufacturer <- as.character(toys$manufacturer)
+toys$manufacturer <- toTitleCase(toys$manufacturer)
+
+toys$product_name <- as.character(toys$product_name)
+toys$product_name <- gsub("Â", "", toys$product_name)
+toys$product_name <- tolower(toys$product_name)
+toys$product_name <- toTitleCase(toys$product_name)
+
+head(toys$product_name)
+
+#get rid of description
+toys$description <- NULL
+head(toys$number_available_in_stock)
+
+#separate in_stock into two Columns 
+toys <- separate(toys, number_available_in_stock,
+                 c("inventory","condition"))
+toys$inventory <- as.numeric(toys$inventory)
+
+head(toys$inventory)
+head(toys$condition)
+
+```
+
+### Tidy up all the potentially useful varaibles and put them into new, separate dataframes
+The code below illustrate the process of data normalization.
+```{r df_category1, echo=TRUE, warning=FALSE}
+#separate each product catecory
+df_category <- toys%>%
+   select(uniq_id, amazon_category_and_sub_category)%>%
+  separate(amazon_category_and_sub_category, 
+                into = c("first_category","second_category", "third_category",
+                   "fourth_category","fifth_category"), sep = "([<\\>])")
+```
+
+```{r df_category glimpse1, echo=TRUE}
+glimpse(df_category)
+```
+
+
+```{r category metadata1}
+kable(df_category_table)
+```
+
+Metadata for customer_reviews
+```{r view revews metadata1}
+kable(df_reviews_table)
+```
+
+Quick look at the df_qa dataframe
+```{r df_qa1}
+glimpse(df_qa)
+```
+Metadata for customer_questions_and_answers.
+```{r df_qa metadata1}
+kable(df_qa_table)
+```
+Metadata for customers_who_bought_this_item_also_bought
+```{r also metadata table1}
+kable(df_also_table)
+```
+
+Metadata for items_customers_buy_after_viewing_this_item.
+```{r also metadata1}
+kable(df_after_table)
+```
+
+
+Metadata for sellers.
+
+```{r sellers metadata1}
+kable(df_sellers_table)
+```
+
+
+
+
+```{r master metadata1, echo = FALSE}
+df_master_table <- data.frame(Column =c(
+  "manufacturers","product_name", "price_in_pounds", "inventory","condition","number_of_reviews","number_of_answered_questions","average_review_rating","age","best_sellers","rank_lowest_category","amazon_category_and_sub_category","customers_who_bought_this_item_also_bought","product_information","product_description","items_customers_buy_after_viewing_this_item","customer_questions_and_answers","customer_reviews","sellers"),
+                 Description = c(
+                   "Brand","Name of the product", "Price in pounds", "Number of inventory","Condition","Number of reviews","Number of answered questions","Average rating","Recommended age","Best sellers ranking in the marketplace","Rank in the lowest category","Toy's cateogry","Customers who bought this toys also bought from this website","General product information","Product appearance description","Items that the customers buy after viewing this item","Questions and answers by customers","Customer ratings and reviews","Availability at other sellers and at these prices"),
+  Datatype = c("Character","Character","Numeric","Numeric","Character","Factor","Integer","Numeric","Numeric","Numeric","Numeric","Factor","Character","Character","Factor","Character","Character","Character","Factor"))
+
+```
+
+Let's take a look at the slightly altered master table.
+```{r master table1}
+kable(df_master_table)
+```
+Table for "best-reviewed" categories and brands.
+```{r best reviewed category table1, include = FALSE}
+#best reviewed categories
+best_reviewed_categories <- count1 %>%
+  arrange(desc(first_n)) %>%
+  slice(1:5) 
+knitr::kable(best_reviewed_categories)
+```
+
+```{r best reviewed brands table1, include = FALSE}
+
+#best_reviewed_brands
+best_reviewed_brands <- m_count_sort[1:5,] 
+knitr::kable(best_reviewed_brands)
+```
+
+
+
+### Regression
+```{r setup1, include=FALSE}
+
+library(modelr)
+setwd("C:/Users/Claire Li/Desktop/DM6020")
+toys <- read_csv("Toys_Amazon.csv")
+also_bought <- read_csv("also_bought_product.csv")
+buy_after <- read_csv("buy_after_view_product.csv")
+category <- read_csv("category_product.csv")
+product <- read_csv("product.csv")
+question_answer <- read_csv("question_answer_product.csv")
+review_product <- read_csv("review_product.csv")
+seller_product <- read_csv("seller_product.csv")
+
+```
+
+Then we loaded the variables that are extrated from product information: age(toys' recommended age), best seller rank(ranked in the entire Amazon marketplace) and lowest category rank (ranked within the toy's own category).
+
+```{r my varaibles1, include = FALSE}
+
+toys$age <- as.character(str_extract(toys$product_information, "\\d+\\ years\\ "))
+toys$age <- as.numeric(gsub("years", "", toys$age))
+
+#extract best seller rank in main category from product info
+toys$product_information <- as.character(toys$product_information)
+toys$best_sellers_rank <- str_extract(toys$product_information, "\\ \\d+\\,\\d+\\ ")
+toys$best_sellers_rank <- as.numeric(gsub(",", "", toys$best_sellers_rank))
+
+#extract rank in lowest category from product info
+toys$lowest_category_rank <- as.character(str_extract(toys$product_information, "#\\d+"))
+toys$lowest_category_rank <- as.numeric(gsub("#", "", toys$lowest_category_rank))
+
+
+my_data <- data_frame(product$number_of_reviews,
+                 product$average_review_rating_out_of_5, 
+                 product$price, toys$age, toys$best_sellers_rank,
+                 toys$lowest_category_rank)
+
+```
+
+
+Looking at the correlation matrix, we decided to include the following four variables: number of reviews, age, rating, price and category rank. 
+```{r prep1, echo = FALSE}
+
+names(my_data) <- c("num_review", "rating", "price","age","best_seller_rank","category_rank") 
+
+corr_matrix <- cor(my_data, use = "complete.obs")
+round(corr_matrix, 2)
+```
+
+We plotted the following graphs using the four varaibles. 
+The age varaible doesn't seem to have a strong linear relationship with best seller rank.
+
+
+The final regression model includes the logged version of price, number of reviews and category rank. The natural logs are iteratively added onto the model. The residual plots improve after adding the logs. 
+
+Note that age is removed here because as it turns out, it doens't have a significant coefficient in the model. 
+
+Looking back at the correlation matrix, age has the weakest correlation with our dependent variable (y) best seller rank (r = 0.22). 
+```{r regression1, echo = FALSE}
+
+model <- lm(log(best_seller_rank) ~ 
+              log(price) +
+              log(num_review) + 
+              log(category_rank) ,
+             data = my_data)
+summary(model)
+```
+
+The model has R-Sqaure Adjusted of 0.6025 and every explanatory varaible have significant coefficient.
+
+
+Now we want to check for multicollinearity by looking at the VIFs.
+```{r vif1, echo = TRUE}
+library(car)
+vif(model)
+```
+No multicollinearity.
+
+Variance inflation factors are very small for all variables (<5).
+Looking at the QQ-plot, we can conclude that the residuals have a normal distribution.
+Looking at the top left plot where residuals are plotted against the fitted values, we may have a heteroskedasticity problem. 
+
+
+Here we ploted the respective relationships between our explanatory and response varaibles.
+```{r viz9, echo = FALSE}
+library(hexbin)
+ggplot(my_data, aes(log(price), log(best_seller_rank))) + 
+  geom_hex(bins = 80)
+```
+
+```{r viz10, echo = FALSE}
+ggplot(my_data, aes(log(num_review), log(best_seller_rank))) + 
+  geom_hex(bins = 80) 
+  
+```
+
+```{r viz11, echo = FALSE}
+ggplot(my_data, aes(log(category_rank), log(best_seller_rank))) + 
+  geom_hex(bins = 80)
+```
