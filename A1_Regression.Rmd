@@ -1,0 +1,201 @@
+---
+title: "Regression_DM"
+author: "Claire Li"
+date: "9/5/2019"
+output: html_document
+---
+
+#Abstract
+This regression analysis looks at the varaibles that could potentially influence the best seller ranking in the Amazon marketplace in the toys dataset. We first added all the variables that are believed to have correlation with the dependent varaible. Then we iteratively removed a quadratic term which was previouly useful and a "age" term. The final regression consists of 3 explanatory variables. 
+
+
+
+First we load the different dataframes into the global environment.
+```{r setup, include=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(modelr)
+setwd("C:/Users/Claire Li/Desktop/DM6020")
+toys <- read_csv("Toys_Amazon.csv")
+also_bought <- read_csv("also_bought_product.csv")
+buy_after <- read_csv("buy_after_view_product.csv")
+category <- read_csv("category_product.csv")
+product <- read_csv("product.csv")
+question_answer <- read_csv("question_answer_product.csv")
+review_product <- read_csv("review_product.csv")
+seller_product <- read_csv("seller_product.csv")
+
+```
+
+Then we loaded the variables that are extrated from product information: age(toys' recommended age), best seller rank(ranked in the entire Amazon marketplace) and lowest category rank (ranked within the toy's own category).
+
+```{r my varaibles}
+
+toys$age <- as.character(str_extract(toys$product_information, "\\d+\\ years\\ "))
+toys$age <- as.numeric(gsub("years", "", toys$age))
+
+#extract best seller rank in main category from product info
+toys$product_information <- as.character(toys$product_information)
+toys$best_sellers_rank <- str_extract(toys$product_information, "\\ \\d+\\,\\d+\\ ")
+toys$best_sellers_rank <- as.numeric(gsub(",", "", toys$best_sellers_rank))
+
+#extract rank in lowest category from product info
+toys$lowest_category_rank <- as.character(str_extract(toys$product_information, "#\\d+"))
+toys$lowest_category_rank <- as.numeric(gsub("#", "", toys$lowest_category_rank))
+
+
+my_data <- data_frame(product$number_of_reviews,
+                 product$average_review_rating_out_of_5, 
+                 product$price, toys$age, toys$best_sellers_rank,
+                 toys$lowest_category_rank
+            )
+
+
+```
+
+
+Rename the varaibles.
+
+Looking at the correlation matrix, we decided to include the following four variables: number of reviews, age, rating, price and category rank. 
+```{r prep, echo = TRUE}
+
+names(my_data) <- c("num_review", "rating", "price","age","best_seller_rank","category_rank") 
+
+corr_matrix <- cor(my_data, use = "complete.obs")
+round(corr_matrix, 2)
+```
+
+We plotted the following graphs using the four varaibles. 
+The age varaible doesn't seem to have a strong linear relationship with best seller rank.
+```{r visualization, echo = TRUE}
+
+#check to see the relationship between log best_seller_rank and log price
+ggplot(my_data, aes(best_seller_rank, price)) + 
+  geom_point()+
+  geom_jitter()
+
+#check to see the relationship between log best_seller_rank and log num_review
+ggplot(my_data, aes(best_seller_rank, num_review)) + 
+  geom_point()+
+  geom_jitter()
+
+#check to see the relationship between log best_seller_rank and age
+ggplot(my_data, aes(best_seller_rank, age))+ 
+  geom_point() +
+  geom_jitter()
+#we later decided to remove "age"
+
+#check to see the relationship between log best_seller_rank and log category_rank
+ggplot(my_data, aes(best_seller_rank, category_rank)) + 
+  geom_point()+
+  geom_jitter()
+```
+
+Before in Case Study 2, including a quadratic term of categroy_rank^2 improves the predicting ability of the model. However, potentially because we are using the cleaned datasets here, the quadratic term doesn't improve the model as much. Thus, it was removed from the model. 
+```{r quadratic term, echo = TRUE}
+#"age" doesn't seem to have a significant relationship with log(best_seller_rank)
+my_data$category_rank2 = my_data$category_rank^2
+#this quadratic term seems to help explain the change in "best_seller_rank", but seems useless when we take the log of "best_seller_rank"
+#discard the quadratic term
+```
+
+The final regression model includes the logged version of price, number of reviews and category rank. The natural logs are iteratively added onto the model. The residual plots improve after adding the logs. 
+
+Note that age is removed here because as it turns out, it doens't have a significant coefficient in the model. 
+
+Looking back at the correlation matrix, age has the weakest correlation with our dependent variable (y) best seller rank (r = 0.22). 
+```{r regression, echo = TRUE}
+
+model <- lm(log(best_seller_rank) ~ 
+              log(price) +
+              log(num_review) + 
+              log(category_rank) ,
+             data = my_data)
+summary(model)
+```
+
+The model has R-Sqaure Adjusted of 0.6025 and every explanatory varaible have significant coefficient.
+
+
+Now we want to check for multicollinearity by looking at the VIFs.
+```{r vif, echo = TRUE}
+
+library(car)
+vif(model)
+```
+No multicollinearity.
+Variance inflation factors are very small for all variables (<5).
+```{r Residuals & QQ-plot, echo = TRUE}
+par(mfrow = c(2, 2))
+plot(model)
+```
+Looking at the QQ-plot, we can conclude that the residuals have a normal distribution.
+
+
+Looking at the top left plot where residuals are plotted against the fitted values, we may have a heteroskedasticity problem. 
+
+
+
+Graph of residuals plotted againt the expect y variable. 
+```{r visualization2, echo = TRUE}
+my_data <- my_data %>% 
+  add_residuals(model, "resid") 
+my_data <- my_data%>%  
+  add_predictions(model, "predicted")
+
+
+ggplot(data = my_data, aes(y = resid, x = log(best_seller_rank))) +
+         geom_point(col = 'blue') + geom_abline(slope = 0)
+```
+
+
+Here is the residual plot of log(price) and log(best_seller_rank).
+```{r viz3}
+ggplot(my_data, aes(x = log(price), y = log(best_seller_rank)))+
+  geom_segment(aes(xend = log(price), yend = predicted), alpha = .2) +
+  geom_point(aes(color = resid)) +
+  scale_color_gradient2(low = "blue", mid = "white", high = "red") +
+  guides(color = FALSE) +
+  geom_point(aes(y = predicted), shape = 1) +
+  theme_bw()
+```
+
+Residual plot of log(category_rank) and log(best_seller_rank).
+```{r viz4}
+ggplot(my_data, aes(x = log(category_rank), y = log(best_seller_rank)))+
+  geom_segment(aes(xend = log(category_rank), yend = predicted), alpha = .2) +
+  geom_point(aes(color = resid)) +
+  scale_color_gradient2(low = "blue", mid = "white", high = "red") +
+  guides(color = FALSE) +
+  geom_point(aes(y = predicted), shape = 1) +
+  theme_bw()
+
+```
+
+
+Here is the log(num_review) plotted against the log
+```{r viz5}
+ggplot(my_data, aes(x = log(num_review), y = log(best_seller_rank)))+
+  geom_segment(aes(xend = log(num_review), yend = predicted), alpha = .2) +
+  geom_point(aes(color = resid)) +
+  scale_color_gradient2(low = "blue", mid = "white", high = "red") +
+  guides(color = FALSE) +
+  geom_point(aes(y = predicted), shape = 1) +
+  theme_bw()
+
+```
+
+Here we ploted the respective relationships between our explanatory and response varaibles.
+```{r viz6, echo = TRUE}
+library(hexbin)
+ggplot(my_data, aes(log(best_seller_rank), log(price))) + 
+  geom_hex(bins = 50)
+
+ggplot(my_data, aes(log(best_seller_rank), log(num_review))) + 
+  geom_hex(bins = 50)
+
+ggplot(my_data, aes(log(best_seller_rank), log(category_rank))) + 
+  geom_hex(bins = 50)
+```
+
